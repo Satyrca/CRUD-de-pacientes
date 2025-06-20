@@ -2,6 +2,7 @@ import './App.css';
 import { useState } from "react";
 import Axios from "axios";
 import 'bootstrap/dist/css/bootstrap.min.css';
+import Swal from 'sweetalert2';
 
 function App() {
 
@@ -28,9 +29,14 @@ function App() {
       cargo:cargo,
       anios:anios
     }).then(()=>{
-      alert("Empleado registrado");
       if (mostrarEmpleados) getEmpleados();
       limpiarCampos();
+      Swal.fire({
+        title: "<strong>Registro Exitoso</strong>",
+        html: "<i> La persona <strong>"+nombre+"</strong> fue registrada.</i>",
+        icon: 'success',
+        timer: 3000
+      });
     }); 
   };
 
@@ -50,6 +56,12 @@ function App() {
     }).then(()=>{
       getEmpleados();
       limpiarCampos();
+      Swal.fire({
+        title: "<strong>Actualización Exitosa</strong>",
+        html: "<i> La información de la persona <strong>"+nombre+"</strong> fue actualizada.</i>",
+        icon: 'success',
+        timer: 3000
+      });
     }); 
   };
 
@@ -87,15 +99,35 @@ function App() {
   };
 
   const deleteEmpleado = (id) => {
-  if (window.confirm("¿Estás seguro que deseas eliminar este empleado?")) {
-    Axios.delete(`http://localhost:3001/delete/${id}`).then(() => {
-      alert("Empleado eliminado con éxito");
-      getEmpleados();
-    }).catch((error) => {
-      console.error("Error al eliminar el empleado", error);
+    Swal.fire({
+      title: '¿Estás seguro?',
+      text: "No podrás revertir esta acción",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, eliminarlo',
+      cancelButtonText: 'Cancelar',
+      reverseButtons: true
+    }).then((result) => {
+      if (result.isConfirmed) {
+        Axios.delete(`http://localhost:3001/delete/${id}`).then(() => {
+          Swal.fire(
+            'Eliminado',
+            'El empleado ha sido eliminado con éxito.',
+            'success'
+          );
+          getEmpleados();
+        }).catch((error) => {
+          console.error("Error al eliminar el empleado", error);
+          Swal.fire(
+            'Error',
+            'Hubo un problema al eliminar al empleado.',
+            'error'
+          );
+        });
+      }
     });
-  }
-};
+  };
+
 
   return (
     <div className="container">
