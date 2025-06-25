@@ -33,14 +33,24 @@ function authenticateToken(req, res, next) {
   });
 }
 
-// --- Registro de usuario ---
-app.post("/register", async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: "Usuario y contraseña requeridos" });
+function authorizeRole(...roles) {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.rol)) {
+      return res.status(403).json({ error: "No tienes permisos suficientes" });
+    }
+    next();
+  };
+}
+
+// --- Registro de usuario (solo admin) ---
+app.post("/register", authenticateToken, authorizeRole("admin"), async (req, res) => {
+  const { username, password, rol } = req.body;
+  if (!username || !password || !rol) return res.status(400).json({ error: "Usuario, contraseña y rol requeridos" });
+  if (!["admin", "user"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
   const hash = await bcrypt.hash(password, 10);
   db.query(
-    "INSERT INTO usuario (username, password) VALUES (?, ?)",
-    [username, hash],
+    "INSERT INTO usuario (username, password, rol) VALUES (?, ?, ?)",
+    [username, hash, rol],
     (err) => {
       if (err) {
         console.error(err);
@@ -63,8 +73,53 @@ app.post("/login", (req, res) => {
     const user = results[0];
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
-    const token = jwt.sign({ id: user.id, username: user.username }, SECRET, { expiresIn: "8h" });
-    res.json({ token });
+    const token = jwt.sign({ id: user.id, username: user.username, rol: user.rol }, SECRET, { expiresIn: "8h" });
+    res.json({ token, rol: user.rol });
+  });
+});
+
+// --- CRUD de usuarios (solo admin) ---
+app.get("/usuarios", authenticateToken, authorizeRole("admin"), (req, res) => {
+  db.query("SELECT id, username, rol FROM usuario", (err, result) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ error: "Error al obtener usuarios" });
+    }
+    res.json(result);
+  });
+});
+
+app.put("/usuarios/:id", authenticateToken, authorizeRole("admin"), async (req, res) => {
+  const id = req.params.id;
+  const { username, password, rol } = req.body;
+  if (!username || !rol) return res.status(400).json({ error: "Usuario y rol requeridos" });
+  if (!["admin", "user"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
+  let sql, params;
+  if (password) {
+    const hash = await bcrypt.hash(password, 10);
+    sql = "UPDATE usuario SET username=?, password=?, rol=? WHERE id=?";
+    params = [username, hash, rol, id];
+  } else {
+    sql = "UPDATE usuario SET username=?, rol=? WHERE id=?";
+    params = [username, rol, id];
+  }
+  db.query(sql, params, (err) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ error: "Error al actualizar usuario" });
+    }
+    res.json({ message: "Usuario actualizado" });
+  });
+});
+
+app.delete("/usuarios/:id", authenticateToken, authorizeRole("admin"), (req, res) => {
+  const id = req.params.id;
+  db.query("DELETE FROM usuario WHERE id=?", [id], (err) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ error: "Error al eliminar usuario" });
+    }
+    res.json({ message: "Usuario eliminado" });
   });
 });
 
