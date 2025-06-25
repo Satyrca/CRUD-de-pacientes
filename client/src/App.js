@@ -1,216 +1,450 @@
-import './App.css';
-import { useState } from "react";
+import "./App.css";
+import { useState, useEffect } from "react";
 import Axios from "axios";
-import 'bootstrap/dist/css/bootstrap.min.css';
-import Swal from 'sweetalert2';
+import "bootstrap/dist/css/bootstrap.min.css";
+import Swal from "sweetalert2";
 
 function App() {
+  // --- Autenticación ---
+  const [token, setToken] = useState(() => localStorage.getItem("token") || "");
+  const [loginForm, setLoginForm] = useState({ username: "", password: "" });
+  const [loginLoading, setLoginLoading] = useState(false);
 
-  const [nombre,setNombre] = useState("");
-  const [edad,setEdad] = useState();
-  const [pais,setPais] = useState("");
-  const [cargo,setCargo] = useState("");
-  const [anios,setAnios] = useState();
-  const [empleadosList, setEmpleados] = useState([]);
-  const [mostrarEmpleados, setMostrarEmpleados] = useState(false);
-  const [editar, setEditar] = useState(false);
-  const [id,setId] = useState();
+  const handleLoginChange = (e) => {
+    setLoginForm({ ...loginForm, [e.target.name]: e.target.value });
+  };
+  const handleLogin = (e) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    Axios.post("http://localhost:3001/login", loginForm)
+      .then((r) => {
+        localStorage.setItem("token", r.data.token);
+        setToken(r.data.token);
+        setLoginForm({ username: "", password: "" });
+      })
+      .catch((err) => {
+        Swal.fire("Login incorrecto", err?.response?.data?.error || "", "error");
+      })
+      .finally(() => setLoginLoading(false));
+  };
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    setToken("");
+  };
 
-  const add = () => {
-    if (!nombre || !edad || !pais || !cargo || !anios) {
-      alert("Por favor, completa todos los campos.");
+  // --- Axios config ---
+  const axiosAuth = Axios.create();
+  axiosAuth.interceptors.request.use((config) => {
+    if (token) config.headers["Authorization"] = `Bearer ${token}`;
+    return config;
+  });
+
+  // Estados para paciente
+  const [pacientes, setPacientes] = useState([]);
+  const [form, setForm] = useState({
+    Tipo_Identificacion: "",
+    Numero_Identificacion: "",
+    Nombres: "",
+    Apellidos: "",
+    Fecha_Nacimiento: "",
+    Sexo: "",
+    Departamento: "",
+    Ciudad: "",
+    ID_Vivienda: "",
+    ID_Estado: "",
+  });
+  const [editando, setEditando] = useState(false);
+  const [idEdit, setIdEdit] = useState("");
+  const [mostrarDetalle, setMostrarDetalle] = useState(null);
+
+  // Catálogos
+  const [viviendas, setViviendas] = useState([]);
+  const [estados, setEstados] = useState([]);
+  const [enfermedades, setEnfermedades] = useState([]);
+  const [programas, setProgramas] = useState([]);
+  const [tratamientos, setTratamientos] = useState([]);
+
+  // Relaciones del paciente seleccionado
+  const [detalle, setDetalle] = useState(null);
+
+  // Cargar catálogos y pacientes
+  useEffect(() => {
+    Axios.get("http://localhost:3001/viviendas").then((r) => setViviendas(r.data));
+    Axios.get("http://localhost:3001/estados").then((r) => setEstados(r.data));
+    Axios.get("http://localhost:3001/enfermedades").then((r) => setEnfermedades(r.data));
+    Axios.get("http://localhost:3001/programas").then((r) => setProgramas(r.data));
+    Axios.get("http://localhost:3001/tratamientos").then((r) => setTratamientos(r.data));
+    if (token) getPacientes();
+    // eslint-disable-next-line
+  }, [token]);
+
+  const getPacientes = () => {
+    axiosAuth.get("http://localhost:3001/pacientes")
+      .then((r) => setPacientes(r.data))
+      .catch((err) => {
+        if (err?.response?.status === 401 || err?.response?.status === 403) {
+          handleLogout();
+          Swal.fire("Sesión expirada o no autorizada");
+        }
+      });
+  };
+
+  const limpiarForm = () => {
+    setForm({
+      Tipo_Identificacion: "",
+      Numero_Identificacion: "",
+      Nombres: "",
+      Apellidos: "",
+      Fecha_Nacimiento: "",
+      Sexo: "",
+      Departamento: "",
+      Ciudad: "",
+      ID_Vivienda: "",
+      ID_Estado: "",
+    });
+    setEditando(false);
+    setIdEdit("");
+  };
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (
+      !form.Tipo_Identificacion ||
+      !form.Numero_Identificacion ||
+      !form.Nombres ||
+      !form.Apellidos
+    ) {
+      Swal.fire("Completa los campos obligatorios");
       return;
     }
-
-    Axios.post("http://localhost:3001/create", {
-      nombre:nombre,
-      edad:edad,
-      pais:pais,
-      cargo:cargo,
-      anios:anios
-    }).then(()=>{
-      if (mostrarEmpleados) getEmpleados();
-      limpiarCampos();
-      Swal.fire({
-        title: "<strong>Registro Exitoso</strong>",
-        html: "<i> La persona <strong>"+nombre+"</strong> fue registrada.</i>",
-        icon: 'success',
-        timer: 3000
-      });
-    }); 
-  };
-
-  const update = () => {
-    if (!nombre || !edad || !pais || !cargo || !anios) {
-      alert("Por favor, completa todos los campos.");
-      return; // No enviar la solicitud si falta algún campo
+    if (editando) {
+      axiosAuth.put(`http://localhost:3001/pacientes/${idEdit}`, form)
+        .then(() => {
+          Swal.fire("Paciente actualizado");
+          getPacientes();
+          limpiarForm();
+        })
+        .catch((err) => {
+          if (err?.response?.status === 401 || err?.response?.status === 403) {
+            handleLogout();
+            Swal.fire("Sesión expirada o no autorizada");
+          }
+        });
+    } else {
+      axiosAuth.post("http://localhost:3001/pacientes", form)
+        .then(() => {
+          Swal.fire("Paciente creado");
+          getPacientes();
+          limpiarForm();
+        })
+        .catch((err) => {
+          if (err?.response?.status === 401 || err?.response?.status === 403) {
+            handleLogout();
+            Swal.fire("Sesión expirada o no autorizada");
+          }
+        });
     }
-
-    Axios.put("http://localhost:3001/update", {
-      id:id,
-      nombre:nombre,
-      edad:edad,
-      pais:pais,
-      cargo:cargo,
-      anios:anios
-    }).then(()=>{
-      getEmpleados();
-      limpiarCampos();
-      Swal.fire({
-        title: "<strong>Actualización Exitosa</strong>",
-        html: "<i> La información de la persona <strong>"+nombre+"</strong> fue actualizada.</i>",
-        icon: 'success',
-        timer: 3000
-      });
-    }); 
   };
 
-  const limpiarCampos = () =>{
-    setId("");
-    setNombre("");
-    setEdad("");
-    setPais("");
-    setCargo("");
-    setAnios("");
-    setEditar(false);
-  }
-
-  const editarEmpleado = (val) => {
-    setEditar(true);
-    setNombre(val.nombre);
-    setEdad(val.edad);
-    setCargo(val.cargo);
-    setPais(val.pais);
-    setAnios(val.anios);
-    setId(val.id);
+  const handleEdit = (p) => {
+    setForm({ ...p });
+    setEditando(true);
+    setIdEdit(p.Numero_Identificacion);
   };
 
-  const toggleMostrarEmpleados = () => {
-    if (!mostrarEmpleados) {
-      getEmpleados();
-    }
-    setMostrarEmpleados(!mostrarEmpleados);
-  };
-
-  const getEmpleados = () => {
-    Axios.get("http://localhost:3001/empleados").then((response)=>{
-      setEmpleados(response.data);
-    }); 
-  };
-
-  const deleteEmpleado = (id) => {
+  const handleDelete = (id) => {
     Swal.fire({
-      title: '¿Estás seguro?',
-      text: "No podrás revertir esta acción",
-      icon: 'warning',
+      title: "¿Eliminar paciente?",
       showCancelButton: true,
-      confirmButtonText: 'Sí, eliminarlo',
-      cancelButtonText: 'Cancelar',
-      reverseButtons: true
+      confirmButtonText: "Sí, eliminar",
     }).then((result) => {
       if (result.isConfirmed) {
-        Axios.delete(`http://localhost:3001/delete/${id}`).then(() => {
-          Swal.fire(
-            'Eliminado',
-            'El empleado ha sido eliminado con éxito.',
-            'success'
-          );
-          getEmpleados();
-        }).catch((error) => {
-          console.error("Error al eliminar el empleado", error);
-          Swal.fire(
-            'Error',
-            'Hubo un problema al eliminar al empleado.',
-            'error'
-          );
-        });
+        axiosAuth.delete(`http://localhost:3001/pacientes/${id}`)
+          .then(() => {
+            Swal.fire("Eliminado");
+            getPacientes();
+          })
+          .catch((err) => {
+            if (err?.response?.status === 401 || err?.response?.status === 403) {
+              handleLogout();
+              Swal.fire("Sesión expirada o no autorizada");
+            }
+          });
       }
     });
   };
 
+  const verDetalle = (id) => {
+    axiosAuth.get(`http://localhost:3001/pacientes/${id}`)
+      .then((r) => {
+        setDetalle(r.data);
+        setMostrarDetalle(id);
+      })
+      .catch((err) => {
+        if (err?.response?.status === 401 || err?.response?.status === 403) {
+          handleLogout();
+          Swal.fire("Sesión expirada o no autorizada");
+        }
+      });
+  };
+
+  // --- Asociar relaciones ---
+  const asociarEnfermedad = (id, data) => {
+    axiosAuth.post(`http://localhost:3001/pacientes/${id}/enfermedades`, data)
+      .then(() => {
+        verDetalle(id);
+        Swal.fire("Enfermedad asociada");
+      })
+      .catch((err) => {
+        if (err?.response?.status === 401 || err?.response?.status === 403) {
+          handleLogout();
+          Swal.fire("Sesión expirada o no autorizada");
+        }
+      });
+  };
+  const asociarPrograma = (id, data) => {
+    axiosAuth.post(`http://localhost:3001/pacientes/${id}/programas`, data)
+      .then(() => {
+        verDetalle(id);
+        Swal.fire("Programa asociado");
+      })
+      .catch((err) => {
+        if (err?.response?.status === 401 || err?.response?.status === 403) {
+          handleLogout();
+          Swal.fire("Sesión expirada o no autorizada");
+        }
+      });
+  };
+  const asociarTratamiento = (id, data) => {
+    axiosAuth.post(`http://localhost:3001/pacientes/${id}/tratamientos`, data)
+      .then(() => {
+        verDetalle(id);
+        Swal.fire("Tratamiento asociado");
+      })
+      .catch((err) => {
+        if (err?.response?.status === 401 || err?.response?.status === 403) {
+          handleLogout();
+          Swal.fire("Sesión expirada o no autorizada");
+        }
+      });
+  };
+
+  // Formularios para asociar relaciones
+  function FormEnfermedad({ id }) {
+    const [data, setData] = useState({ ID_Enfermedad: "", Fecha_Diagnostico: "", Estadio: "" });
+    return (
+      <form
+        className="mb-2"
+        onSubmit={e => {
+          e.preventDefault();
+          asociarEnfermedad(id, data);
+        }}
+      >
+        <div className="input-group">
+          <select className="form-select" required value={data.ID_Enfermedad} onChange={e => setData({ ...data, ID_Enfermedad: e.target.value })}>
+            <option value="">Enfermedad</option>
+            {enfermedades.map(e => <option key={e.ID_Enfermedad} value={e.ID_Enfermedad}>{e.Nombre_Enfermedad}</option>)}
+          </select>
+          <input type="date" className="form-control" required value={data.Fecha_Diagnostico} onChange={e => setData({ ...data, Fecha_Diagnostico: e.target.value })} />
+          <input type="text" className="form-control" placeholder="Estadio" value={data.Estadio} onChange={e => setData({ ...data, Estadio: e.target.value })} />
+          <button className="btn btn-success" type="submit">Asociar</button>
+        </div>
+      </form>
+    );
+  }
+  function FormPrograma({ id }) {
+    const [data, setData] = useState({ ID_Programa: "", Fecha_Vinculacion: "", Observaciones: "" });
+    return (
+      <form
+        className="mb-2"
+        onSubmit={e => {
+          e.preventDefault();
+          asociarPrograma(id, data);
+        }}
+      >
+        <div className="input-group">
+          <select className="form-select" required value={data.ID_Programa} onChange={e => setData({ ...data, ID_Programa: e.target.value })}>
+            <option value="">Programa</option>
+            {programas.map(p => <option key={p.ID_Programa} value={p.ID_Programa}>{p.Nombre_Programa}</option>)}
+          </select>
+          <input type="date" className="form-control" required value={data.Fecha_Vinculacion} onChange={e => setData({ ...data, Fecha_Vinculacion: e.target.value })} />
+          <input type="text" className="form-control" placeholder="Observaciones" value={data.Observaciones} onChange={e => setData({ ...data, Observaciones: e.target.value })} />
+          <button className="btn btn-success" type="submit">Asociar</button>
+        </div>
+      </form>
+    );
+  }
+  function FormTratamiento({ id }) {
+    const [data, setData] = useState({ ID_Tratamiento: "", Fecha_Inicio: "", Fecha_Fin: "", Resultado: "" });
+    return (
+      <form
+        className="mb-2"
+        onSubmit={e => {
+          e.preventDefault();
+          asociarTratamiento(id, data);
+        }}
+      >
+        <div className="input-group">
+          <select className="form-select" required value={data.ID_Tratamiento} onChange={e => setData({ ...data, ID_Tratamiento: e.target.value })}>
+            <option value="">Tratamiento</option>
+            {tratamientos.map(t => <option key={t.ID_Tratamiento} value={t.ID_Tratamiento}>{t.Nombre_Tratamiento}</option>)}
+          </select>
+          <input type="date" className="form-control" required value={data.Fecha_Inicio} onChange={e => setData({ ...data, Fecha_Inicio: e.target.value })} />
+          <input type="date" className="form-control" value={data.Fecha_Fin} onChange={e => setData({ ...data, Fecha_Fin: e.target.value })} />
+          <input type="text" className="form-control" placeholder="Resultado" value={data.Resultado} onChange={e => setData({ ...data, Resultado: e.target.value })} />
+          <button className="btn btn-success" type="submit">Asociar</button>
+        </div>
+      </form>
+    );
+  }
+
+  // --- Renderizado ---
+  if (!token) {
+    return (
+      <div className="container my-5" style={{ maxWidth: 400 }}>
+        <h3 className="mb-4">Iniciar sesión</h3>
+        <form onSubmit={handleLogin} className="card p-4">
+          <input name="username" className="form-control mb-2" placeholder="Usuario" value={loginForm.username} onChange={handleLoginChange} required />
+          <input name="password" type="password" className="form-control mb-3" placeholder="Contraseña" value={loginForm.password} onChange={handleLoginChange} required />
+          <button className="btn btn-primary w-100" type="submit" disabled={loginLoading}>{loginLoading ? "Entrando..." : "Entrar"}</button>
+        </form>
+      </div>
+    );
+  }
 
   return (
-    <div className="container">
-      <div className="card text-center">
-        <div className="card-header">
-          GESTIÓN DE EMPLEADOS
-        </div>
-        <div className="card-body">
-          <div className="input-group mb-3">
-            <span className="input-group-text">Nombre:</span>
-            <input type="text" onChange={(e)=>setNombre(e.target.value)} value={nombre} className="form-control" placeholder="Ingrese un nombre"/>
-          </div>
-
-          <div className="input-group mb-3">
-            <span className="input-group-text">Edad:</span>
-            <input type="number" onChange={(e)=>setEdad(e.target.value)} value={edad} className="form-control" placeholder="Ingrese edad"/>
-          </div>
-
-          <div className="input-group mb-3">
-            <span className="input-group-text">País:</span>
-            <input type="text" onChange={(e)=>setPais(e.target.value)} value={pais} className="form-control" placeholder="Ingrese país"/>
-          </div>
-
-          <div className="input-group mb-3">
-            <span className="input-group-text">Cargo:</span>
-            <input type="text" onChange={(e)=>setCargo(e.target.value)} value={cargo} className="form-control" placeholder="Ingrese cargo"/>
-          </div>
-
-          <div className="input-group mb-3">
-            <span className="input-group-text">Años de experiencia:</span>
-            <input type="number" onChange={(e)=>setAnios(e.target.value)} value={anios} className="form-control" placeholder="Ingrese años de experiencia"/>
-          </div>
-        </div>
-        <div className="card-footer text-muted">
-          <button className='btn btn-primary me-2' onClick={ toggleMostrarEmpleados }>
-            {mostrarEmpleados ? 'Ocultar lista' : 'Listar'}
-          </button>
-          {
-            editar?
-            <div>
-              <button className='btn btn-success me-2' onClick={ update }>Actualizar</button> 
-              <button className='btn btn-success' onClick={ limpiarCampos }>Cancelar</button>
-            </div>
-            :<button className='btn btn-success' onClick={ add }>Registrar</button>
-          }
-          
-        </div>
+    <div className="container my-4">
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <h2>Gestión de Pacientes</h2>
+        <button className="btn btn-outline-danger" onClick={handleLogout}>Cerrar sesión</button>
       </div>
+      <form className="card p-3 mb-4" onSubmit={handleSubmit}>
+        <div className="row g-2">
+          <div className="col-md-2">
+            <input name="Tipo_Identificacion" className="form-control" placeholder="Tipo ID" value={form.Tipo_Identificacion} onChange={handleChange} required />
+          </div>
+          <div className="col-md-2">
+            <input name="Numero_Identificacion" className="form-control" placeholder="Número ID" value={form.Numero_Identificacion} onChange={handleChange} required disabled={editando} />
+          </div>
+          <div className="col-md-2">
+            <input name="Nombres" className="form-control" placeholder="Nombres" value={form.Nombres} onChange={handleChange} required />
+          </div>
+          <div className="col-md-2">
+            <input name="Apellidos" className="form-control" placeholder="Apellidos" value={form.Apellidos} onChange={handleChange} required />
+          </div>
+          <div className="col-md-2">
+            <input name="Fecha_Nacimiento" type="date" className="form-control" value={form.Fecha_Nacimiento} onChange={handleChange} />
+          </div>
+          <div className="col-md-2">
+            <select name="Sexo" className="form-select" value={form.Sexo} onChange={handleChange}>
+              <option value="">Sexo</option>
+              <option value="M">M</option>
+              <option value="F">F</option>
+            </select>
+          </div>
+        </div>
+        <div className="row g-2 mt-2">
+          <div className="col-md-2">
+            <input name="Departamento" className="form-control" placeholder="Departamento" value={form.Departamento} onChange={handleChange} />
+          </div>
+          <div className="col-md-2">
+            <input name="Ciudad" className="form-control" placeholder="Ciudad" value={form.Ciudad} onChange={handleChange} />
+          </div>
+          <div className="col-md-4">
+            <select name="ID_Vivienda" className="form-select" value={form.ID_Vivienda} onChange={handleChange}>
+              <option value="">Vivienda</option>
+              {viviendas.map(v => <option key={v.ID_Vivienda} value={v.ID_Vivienda}>{v.Tipo_Piso} - {v.Barrio}</option>)}
+            </select>
+          </div>
+          <div className="col-md-4">
+            <select name="ID_Estado" className="form-select" value={form.ID_Estado} onChange={handleChange}>
+              <option value="">Estado</option>
+              {estados.map(e => <option key={e.ID_Estado} value={e.ID_Estado}>{e.Estado}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="mt-3">
+          <button className="btn btn-success me-2" type="submit">{editando ? "Actualizar" : "Registrar"}</button>
+          {editando && <button className="btn btn-secondary" type="button" onClick={limpiarForm}>Cancelar</button>}
+        </div>
+      </form>
 
-      {mostrarEmpleados && (
-        <table className="table table-striped mt-4">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Nombre</th>
-              <th>Edad</th>
-              <th>País</th>
-              <th>Cargo</th>
-              <th>Experiencia</th>
-              <th>Acciones</th>
+      <table className="table table-bordered table-striped">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Nombre</th>
+            <th>Apellidos</th>
+            <th>Sexo</th>
+            <th>Departamento</th>
+            <th>Ciudad</th>
+            <th>Vivienda</th>
+            <th>Estado</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pacientes.map(p => (
+            <tr key={p.Numero_Identificacion}>
+              <td>{p.Numero_Identificacion}</td>
+              <td>{p.Nombres}</td>
+              <td>{p.Apellidos}</td>
+              <td>{p.Sexo}</td>
+              <td>{p.Departamento}</td>
+              <td>{p.Ciudad}</td>
+              <td>{p.Tipo_Piso} {p.Barrio}</td>
+              <td>{p.Estado}</td>
+              <td>
+                <button className="btn btn-info btn-sm me-1" onClick={() => verDetalle(p.Numero_Identificacion)}>Detalle</button>
+                <button className="btn btn-warning btn-sm me-1" onClick={() => handleEdit(p)}>Editar</button>
+                <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p.Numero_Identificacion)}>Eliminar</button>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {
-              empleadosList.map((val) => (
-                <tr key={val.id}>
-                  <th>{val.id}</th>
-                  <td>{val.nombre}</td>
-                  <td>{val.edad}</td>
-                  <td>{val.pais}</td>
-                  <td>{val.cargo}</td>
-                  <td>{val.anios}</td>
-                  <td>
-                    <div className="btn-group">
-                      <button className="btn btn-info" onClick={()=>editarEmpleado(val)}>Editar</button>
-                      <button className="btn btn-danger" onClick={() => deleteEmpleado(val.id)}>Eliminar</button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            }
-          </tbody>
-        </table>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Detalle y gestión de relaciones */}
+      {mostrarDetalle && detalle && (
+        <div className="card mt-4">
+          <div className="card-header">
+            <b>Detalle de paciente:</b> {detalle.paciente.Nombres} {detalle.paciente.Apellidos} ({detalle.paciente.Numero_Identificacion})
+            <button className="btn btn-sm btn-secondary float-end" onClick={() => setMostrarDetalle(null)}>Cerrar</button>
+          </div>
+          <div className="card-body">
+            <div className="mb-3">
+              <b>Enfermedades:</b>
+              <FormEnfermedad id={detalle.paciente.Numero_Identificacion} />
+              <ul>
+                {detalle.enfermedades.map((e, i) => (
+                  <li key={i}>{e.Nombre_Enfermedad} ({e.Fecha_Diagnostico}) Estadio: {e.Estadio}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="mb-3">
+              <b>Programas:</b>
+              <FormPrograma id={detalle.paciente.Numero_Identificacion} />
+              <ul>
+                {detalle.programas.map((p, i) => (
+                  <li key={i}>{p.Nombre_Programa} ({p.Fecha_Vinculacion}) {p.Observaciones}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="mb-3">
+              <b>Tratamientos:</b>
+              <FormTratamiento id={detalle.paciente.Numero_Identificacion} />
+              <ul>
+                {detalle.tratamientos.map((t, i) => (
+                  <li key={i}>{t.Nombre_Tratamiento} ({t.Fecha_Inicio} - {t.Fecha_Fin}) Resultado: {t.Resultado}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
